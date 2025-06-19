@@ -1,0 +1,123 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import io
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+
+
+file_path = "2. MTBE Motors List and Data.xlsx"
+
+
+motor_names = [
+    "EA0117AM", "EA0119AM", "EA0121AM", "EA0222AM", "EA0225AM", "EA0901AM", "EA0901BM",
+    "EC1101AM", "EC1101BM", "EC1101CM", "EC1101DM", "KB0701AM", "KC0101AM", "PC0101CM",
+    "PC0105BM", "PC0222BM", "PC0601BM", "PC1007BM", "PC1106M", "PC1108BM"
+]
+
+
+def fft_analysis(signal, sampling_rate=1.0):
+    signal = signal - np.mean(signal)  # Centering (removal of DC)
+    n = len(signal)
+    freqs = np.fft.fftfreq(n, d=1/sampling_rate)
+    fft_vals = np.fft.fft(signal)
+    magnitude = np.abs(fft_vals)[:n // 2]
+    freqs = freqs[:n // 2]
+    return freqs, magnitude
+
+# Health criteria
+def is_healthy_fft(magnitude, threshold=268.5915):
+    return np.mean(magnitude) < threshold
+
+# Engine treatment
+def process_motor(df, motor_name):
+    df['A_avg'] = (df['A(A) Max'] + df['A(A) Min']) / 2
+    df['B_avg'] = (df['B(A) Max'] + df['B(A) Min']) / 2
+    df['C_avg'] = (df['C(A) Max'] + df['C(A) Min']) / 2
+
+    freqs_A, mag_A = fft_analysis(df['A_avg'])
+    freqs_B, mag_B = fft_analysis(df['B_avg'])
+    freqs_C, mag_C = fft_analysis(df['C_avg'])
+
+    mean_mag_A = np.mean(mag_A)
+    mean_mag_B = np.mean(mag_B)
+    mean_mag_C = np.mean(mag_C)
+
+    health_A = is_healthy_fft(mag_A)
+    health_B = is_healthy_fft(mag_B)
+    health_C = is_healthy_fft(mag_C)
+
+    global_health = "Healthy" if all([health_A, health_B, health_C]) else "Unhealthy"
+
+    health_results = {
+        'Phase': ['A', 'B', 'C', 'Global'],
+        'Health': ['Healthy' if health_A else 'Unhealthy',
+                  'Healthy' if health_B else 'Unhealthy',
+                  'Healthy' if health_C else 'Unhealthy',
+                  global_health],
+        'Mean FFT Magnitude': [mean_mag_A, mean_mag_B, mean_mag_C, np.nan]
+    }
+
+    health_df = pd.DataFrame(health_results)
+
+    # Graphique
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(freqs_A, mag_A, label='FFT A')
+    ax.plot(freqs_B, mag_B, label='FFT B')
+    ax.plot(freqs_C, mag_C, label='FFT C')
+    ax.set_title(f"Frequency spectrum - Phases A, B, C - {motor_name}")
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Magnitude")
+    ax.legend()
+    ax.grid(True)
+    plt.tight_layout()
+
+    img_stream = io.BytesIO()
+    canvas = FigureCanvas(fig)
+    canvas.print_png(img_stream)
+    plt.close(fig)
+
+    return health_df, img_stream
+
+output_file_path = "MTBE_Motors_with_fft_health_results.xlsx"
+xls = pd.ExcelFile(file_path)
+available_sheets = xls.sheet_names
+
+print("Sheets available in the file :")
+print(available_sheets)
+
+all_health_results = []
+
+with pd.ExcelWriter(output_file_path, engine='xlsxwriter') as writer:
+    workbook = writer.book
+
+    for motor_name in motor_names:
+        print(f"\nTreatment of : {motor_name}")
+        if motor_name not in available_sheets:
+            print(f"Leaf '{motor_name}' not found. Engine ignored.")
+            continue
+
+        try:
+            df_motor = pd.read_excel(file_path, sheet_name=motor_name)
+            health_df, img_stream = process_motor(df_motor, motor_name)
+
+            health_df.to_excel(writer, sheet_name=motor_name, index=False)
+
+            worksheet = workbook.add_worksheet(f'Graphiques_{motor_name}')
+            worksheet.insert_image('A1', 'graph.png', {'image_data': img_stream})
+
+            temp_df = health_df.copy()
+            temp_df.insert(0, 'Motor', "")
+            temp_df.loc[temp_df.index[0], 'Motor'] = motor_name
+            all_health_results.append(temp_df)
+
+        except Exception as e:
+            print(f"Error when processing {motor_name} : {e}")
+            continue
+
+    if all_health_results:
+        final_health_df = pd.concat(all_health_results, ignore_index=True)
+        final_health_df.to_excel(writer, sheet_name='Global results', index=False)
+    else:
+        print("No engines successfully processed. No global results generated.")
+
+print("\nComplete analysis. Results saved in :", output_file_path)
