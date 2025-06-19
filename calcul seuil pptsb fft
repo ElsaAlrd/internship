@@ -1,0 +1,54 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# PARAMETERS
+file_path = "1. PPTSB Motors List and Data.xlsx"
+motor_names = [
+    "E22802-01", "E22802-02", "E22802-03", "E22802-04", "E22802-05",
+    "E22802-06", "E22802-08", "E22807-01", "E22807-02", "E22812-01",
+    "E22812-02", "E22902-01", "E22902-02", "E22902-04", "E22905-01",
+    "E22905-02", "PM22803A", "PM22808B", "PM22902B"
+]
+
+# FFT FUNCTION
+def fft_analysis(signal):
+    n = len(signal)
+    fft_vals = np.fft.fft(signal)
+    magnitude = np.abs(fft_vals)[:n // 2]
+    return magnitude
+
+# COLLECTION OF MAGNITUDE AVERAGES
+mean_mag_array = []
+
+for motor_name in motor_names:
+    try:
+        df = pd.read_excel(file_path, sheet_name=motor_name)
+        df['A_avg'] = (df['A(A) Max'] + df['A(A) Min']) / 2
+        df['B_avg'] = (df['B(A) Max'] + df['B(A) Min']) / 2
+        df['C_avg'] = (df['C(A) Max'] + df['C(A) Min']) / 2
+
+        for col in ['A_avg', 'B_avg', 'C_avg']:
+            magnitude = fft_analysis(df[col])
+            mean_mag_array.append(np.mean(magnitude))
+
+    except Exception as e:
+        print(f"Error on {motor_name} : {e}")
+
+# CALCULATION OF EMPIRICAL THRESHOLD
+mean_val = np.mean(mean_mag_array)
+std_val = np.std(mean_mag_array)
+threshold = mean_val + 2 * std_val
+
+print(f"EMPIRICAL THRESHOLD (μ + 2σ) : {threshold:.4f}")
+
+# HISTOGRAM DISPLAY
+plt.figure(figsize=(10, 6))
+plt.hist(mean_mag_array, bins=20, edgecolor='k')
+plt.axvline(threshold, color='r', linestyle='--', label=f'empirical treshold ({threshold:.2f})')
+plt.title("Distribution of mean FFT magnitudes")
+plt.xlabel("Average magnitude")
+plt.ylabel("Number of phases")
+plt.legend()
+plt.grid(True)
+plt.show()
