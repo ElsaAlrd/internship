@@ -1,0 +1,49 @@
+log_file = "last_run_pptsb.log"
+
+# Vérification date
+def should_run():
+    if not os.path.exists(log_file): return True
+    with open(log_file, "r") as f:
+        last = datetime.datetime.strptime(f.read(), "%Y-%m-%d")
+    return (datetime.datetime.today() - last).days >= 10
+
+def update_log():
+    with open(log_file, "w") as f:
+        f.write(datetime.datetime.today().strftime("%Y-%m-%d"))
+
+if should_run():
+    print("Lancement de l’analyse PPTSB...")
+
+    fft = pd.read_excel("PPTSB_Motors_FFT_Health_Results.xlsx", sheet_name="Global Results")
+    hilbert = pd.read_excel("PPTSB_Motors_with_health_results.xlsx", sheet_name="Global results")
+    fft["Moteur"] = fft["Moteur"].fillna(method="ffill")
+    hilbert["Moteur"] = hilbert["Moteur"].fillna(method="ffill")
+
+    fft_A = fft[fft["Phase"] == "A"][["Moteur", "Mean FFT Magnitude"]].rename(columns={"Mean FFT Magnitude": "FFT_Mag"})
+    hilbert_A = hilbert[hilbert["Phase"] == "A"][["Moteur", "Standard deviation frequency"]].rename(columns={"Standard deviation frequency":
+                                                                                                             "Hilbert_STD"})
+
+    df = pd.merge(fft_A, hilbert_A, on="Moteur")
+    df["FFT_Mag_Norm"] = (df["FFT_Mag"] - df["FFT_Mag"].min()) / (df["FFT_Mag"].max() - df["FFT_Mag"].min())
+    df["Hilbert_STD_Norm"] = (df["Hilbert_STD"] - df["Hilbert_STD"].min()) / (df["Hilbert_STD"].max() - df["Hilbert_STD"].min())
+    df["Health Score"] = 1 - (0.5 * df["FFT_Mag_Norm"] + 0.5 * df["Hilbert_STD_Norm"])
+    df["État moteur"] = df["Health Score"].apply(lambda s: "Good" if s > 0.7 else "Medium" if s > 0.4 else "Critical")
+    plt.figure(figsize=(12, 6))
+    plt.bar(df["Moteur"], df["Health Score"], color=df["State motor"].map({"Good": "green", "Medium": "orange", "Critical": "red"}))
+    plt.axhline(0.7, color="gray", linestyle="--")
+    plt.axhline(0.4, color="gray", linestyle="--")
+    plt.xticks(rotation=90)
+    plt.title("Engine living standardss - PPTSB")
+    plt.tight_layout()
+    img = BytesIO()
+    plt.savefig(img, format='png')
+    plt.close()
+    with pd.ExcelWriter("PPTSB_Motor_Health_Report.xlsx", engine="xlsxwriter") as writer:
+        df.to_excel(writer, sheet_name="Health Resums", index=False)
+        ws = writer.book.add_worksheet("Graphics")
+        ws.insert_image("B2", "graph.png", {"image_data": img})
+
+    update_log()
+    print("Report generated : PPTSB_Motor_Health_Report.xlsx")
+else:
+    print(" Less than 10 days elapsed. PPTSB not re-launched.")
