@@ -1,0 +1,75 @@
+import graphviz
+
+# Create the flowchart
+dot = graphviz.Digraph(comment='FFT Pipeline - Enhanced')
+
+# Start
+dot.node('A0', 'Start')
+
+# Load Excel file
+dot.node('A1', 'Load Excel file\n"1. PPTSB Motors List and Data.xlsx"')
+dot.edge('A0', 'A1')
+
+# Loop over motors
+dot.node('A2', 'Loop over each motor\nfor motor_name in motor_names:')
+dot.edge('A1', 'A2')
+
+# Read motor data
+dot.node('B1', 'Read motor data\n→ df_motor = pd.read_excel(...)')
+dot.edge('A2', 'B1')
+
+# Compute signal averages
+dot.node('B2', 'Compute signal averages\n→ A_avg, B_avg, C_avg')
+dot.edge('B1', 'B2')
+
+# Process each phase
+dot.node('B3', 'Process per phase\nfor phase in [A, B, C]')
+dot.edge('B2', 'B3')
+
+# Phase-wise FFT analysis
+for phase in ['A', 'B', 'C']:
+    dot.node(f'C{phase}', f'FFT on {phase}_avg\n→ FFT_{phase} = fft({phase}_avg)')
+    dot.edge('B3', f'C{phase}')
+
+    dot.node(f'D{phase}', f'Magnitude spectrum\n→ magnitude_{phase} = abs(FFT_{phase})')
+    dot.edge(f'C{phase}', f'D{phase}')
+
+    dot.node(f'E{phase}', f'Mean magnitude\n→ mean_mag_{phase} = mean(magnitude_{phase})')
+    dot.edge(f'D{phase}', f'E{phase}')
+
+    dot.node(f'F{phase}', f'Health check Phase {phase}\n→ mean_mag_{phase} < threshold?')
+    dot.edge(f'E{phase}', f'F{phase}')
+
+# Global health decision
+dot.node('G1', 'Are all phases OK?\nmean_mag_{A,B,C} < threshold')
+for phase in ['A', 'B', 'C']:
+    dot.edge(f'F{phase}', 'G1')
+
+# Decision branches
+dot.node('G2', 'All phases OK\n→ Global Health: OK')
+dot.edge('G1', 'G2', label='Yes')
+
+dot.node('G3', 'At least one phase NOT OK\n→ Global Health: NOT OK')
+dot.edge('G1', 'G3', label='No')
+
+# Continue on the "Yes" branch
+dot.node('H1', 'Create results DataFrame\n→ health_df')
+dot.edge('G2', 'H1')
+
+dot.node('I1', 'Generate FFT plots\n→ Frequency Spectrum')
+dot.edge('H1', 'I1')
+
+dot.node('J1', 'Insert images in Excel\n→ insert_image()')
+dot.edge('I1', 'J1')
+
+dot.node('K1', 'Save results to Excel\n→ to_excel()')
+dot.edge('J1', 'K1')
+
+dot.node('L1', 'Aggregate global results\n→ Global Results')
+dot.edge('K1', 'L1')
+
+dot.node('Z1', 'End')
+dot.edge('L1', 'Z1')
+
+# Render the diagram
+dot.render('fft_flowchart_updated_en', format='png', view=True)
