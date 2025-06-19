@@ -1,0 +1,70 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from io import BytesIO
+
+# Chemins vers les fichiers d'entrée
+fft_path = "PPTSB_Motors_FFT_Health_Results.xlsx"
+hilbert_path = "PPTSB_Motors_with_health_results.xlsx"
+
+# Chargement des données
+fft_df = pd.read_excel(fft_path, sheet_name="Global Results")
+hilbert_df = pd.read_excel(hilbert_path, sheet_name="Global results")
+
+# Nettoyage
+fft_df["Moteur"] = fft_df["Moteur"].fillna(method="ffill")
+hilbert_df["Moteur"] = hilbert_df["Moteur"].fillna(method="ffill")
+
+# Extraction Phase A
+fft_A = fft_df[fft_df["Phase"] == "A"][["Moteur", "Mean FFT Magnitude"]].rename(columns={"Mean FFT Magnitude": "FFT_Mag"})
+hilbert_A = hilbert_df[hilbert_df["Phase"] == "A"][["Moteur", "Standard deviation frequency"]].rename(columns={"Standard deviation frequency": "Hilbert_STD"})
+
+# Fusion
+merged = pd.merge(fft_A, hilbert_A, on="Moteur")
+
+# Normalisation
+merged["FFT_Mag_Norm"] = (merged["FFT_Mag"] - merged["FFT_Mag"].min()) / (merged["FFT_Mag"].max() - merged["FFT_Mag"].min())
+merged["Hilbert_STD_Norm"] = (merged["Hilbert_STD"] - merged["Hilbert_STD"].min()) / (merged["Hilbert_STD"].max() - merged["Hilbert_STD"].min())
+
+# Calcul du score de santé
+merged["Health Score"] = 1 - (0.5 * merged["FFT_Mag_Norm"] + 0.5 * merged["Hilbert_STD_Norm"])
+
+# Classification
+def classify(score):
+    if score > 0.7:
+        return "Bon"
+    elif score > 0.4:
+        return "Moyen"
+    else:
+        return "Critique"
+
+merged["État moteur"] = merged["Health Score"].apply(classify)
+
+# Création du graphique
+plt.figure(figsize=(12, 6))
+colors = merged["État moteur"].map({"Bon": "green", "Moyen": "orange", "Critique": "red"})
+plt.bar(merged["Moteur"], merged["Health Score"], color=colors)
+plt.axhline(0.7, color="gray", linestyle="--", label="Seuil Bon (0.7)")
+plt.axhline(0.4, color="gray", linestyle="--", label="Seuil Moyen (0.4)")
+plt.xticks(rotation=90)
+plt.ylabel("Health Score")
+plt.title("Niveau de vie des moteurs - PPTSB")
+plt.legend()
+plt.tight_layout()
+
+# Enregistrement temporaire du graphique dans un buffer
+img_data = BytesIO()
+plt.savefig(img_data, format='png')
+plt.close()
+
+# Export vers Excel
+output_file = "PPTSB_Motor_Health_Report.xlsx"
+with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
+    # Feuille de données
+    merged.to_excel(writer, sheet_name="Résumé santé", index=False)
+
+    # Feuille graphique
+    workbook = writer.book
+    worksheet = workbook.add_worksheet("Graphique")
+    worksheet.insert_image("B2", "graph.png", {"image_data": img_data})
+
+print(" Fichier Excel généré :", output_file)
