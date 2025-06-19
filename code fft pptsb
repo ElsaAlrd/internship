@@ -1,0 +1,106 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import io
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+
+# Source file
+file_path = "1. PPTSB Motors List and Data.xlsx"
+
+# List of engines
+motor_names = [
+    "E22802-01", "E22802-02", "E22802-03", "E22802-04", "E22802-05",
+    "E22802-06", "E22802-08", "E22807-01", "E22807-02", "E22812-01",
+    "E22812-02", "E22902-01", "E22902-02", "E22902-04", "E22905-01",
+    "E22905-02", "PM22803A", "PM22808B", "PM22902B"
+]
+
+# FFT analysis
+def fft_analysis(signal, sampling_rate=1.0):
+    n = len(signal)
+    freqs = np.fft.fftfreq(n, d=1/sampling_rate)
+    fft_vals = np.fft.fft(signal)
+    magnitude = np.abs(fft_vals)[:n // 2]
+    freqs = freqs[:n // 2]
+    return freqs, magnitude
+
+# Health check based on average magnitude
+def is_healthy_fft(magnitude, threshold=196.8214):
+    return np.mean(magnitude) < threshold
+
+def process_motor(df, motor_name):
+    # Signal averages
+    df['A_avg'] = (df['A(A) Max'] + df['A(A) Min']) / 2
+    df['B_avg'] = (df['B(A) Max'] + df['B(A) Min']) / 2
+    df['C_avg'] = (df['C(A) Max'] + df['C(A) Min']) / 2
+
+    # FFT
+    freqs_A, mag_A = fft_analysis(df['A_avg'])
+    freqs_B, mag_B = fft_analysis(df['B_avg'])
+    freqs_C, mag_C = fft_analysis(df['C_avg'])
+
+    mean_mag_A = np.mean(mag_A)
+    mean_mag_B = np.mean(mag_B)
+    mean_mag_C = np.mean(mag_C)
+
+    health_A = is_healthy_fft(mag_A)
+    health_B = is_healthy_fft(mag_B)
+    health_C = is_healthy_fft(mag_C)
+
+    global_health = "Healthy" if all([health_A, health_B, health_C]) else "Unhealthy"
+    moteur_column = [motor_name, "", "", ""]
+
+    # Health results
+    health_df = pd.DataFrame({
+        'Moteur': moteur_column,
+        'Phase': ['A', 'B', 'C', 'Global'],
+        'Santé': ['Healthy' if health_A else 'Unhealthy',
+                  'Healthy' if health_B else 'Unhealthy',
+                  'Healthy' if health_C else 'Unhealthy',
+                  global_health],
+        'Mean FFT Magnitude': [mean_mag_A, mean_mag_B, mean_mag_C, np.nan]
+    })
+
+    # Graphe FFT
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(freqs_A, mag_A, label='FFT A')
+    ax.plot(freqs_B, mag_B, label='FFT B')
+    ax.plot(freqs_C, mag_C, label='FFT C')
+    ax.set_title(f"Frequency spectrum - Phases A, B, C - {motor_name}")
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Magnitude")
+    ax.legend()
+    ax.grid(True)
+
+    plt.tight_layout()
+    img_stream = io.BytesIO()
+    canvas = FigureCanvas(fig)
+    canvas.print_png(img_stream)
+    plt.close(fig)
+
+    return health_df, img_stream
+# Creating the output Excel file
+output_file_path = "PPTSB_Motors_FFT_Health_Results.xlsx"
+with pd.ExcelWriter(output_file_path, engine='xlsxwriter') as writer:
+    all_health_results = []
+
+    for motor_name in motor_names:
+        df_motor = pd.read_excel(file_path, sheet_name=motor_name)
+        health_df, img_stream = process_motor(df_motor, motor_name)
+
+        # Results sheet by engine
+        health_df.to_excel(writer, sheet_name=motor_name, index=False)
+
+        # Inserting the graph
+        workbook = writer.book
+        worksheet = workbook.add_worksheet(f'Graph_{motor_name}')
+        worksheet.insert_image('A1', 'graph.png', {'image_data': img_stream})
+
+        all_health_results.append(health_df)
+
+    # Merging global results
+    cleaned_results = [df.dropna(how='all') for df in all_health_results]
+    final_health_df = pd.concat(cleaned_results, ignore_index=True)
+    final_health_df.to_excel(writer, sheet_name='Global Results', index=False)
+
+print("\nFFT analysis complete. Results saved in PPTSB_Motors_FFT_Health_Results.xlsx")
