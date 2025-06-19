@@ -1,0 +1,78 @@
+import graphviz
+
+# Creating the flowchart
+dot = graphviz.Digraph(comment='Hilbert Pipeline - Enhanced')
+
+dot.node('A0', 'Start')
+
+dot.node('A1', 'Load Excel file\n"1. PPTSB Motors List and Data.xlsx"')
+dot.edge('A0', 'A1')
+
+dot.node('A2', 'Loop over each motor\nfor motor_name in motor_names:')
+dot.edge('A1', 'A2')
+
+dot.node('B1', 'Read motor data\n→ df_motor = pd.read_excel(...)')
+dot.edge('A2', 'B1')
+
+dot.node('B2', 'Average the signals\n→ A_avg, B_avg, C_avg')
+dot.edge('B1', 'B2')
+
+dot.node('B3', 'Process per phase\nfor phase in [A, B, C]')
+dot.edge('B2', 'B3')
+
+# Phase-wise processing
+for phase in ['A', 'B', 'C']:
+    dot.node(f'C{phase}', f'Hilbert Transform\n→ hilbert({phase}_avg) = z{phase}(t)')
+    dot.edge('B3', f'C{phase}')
+
+    dot.node(f'D{phase}', f'Analytic signal\nz{phase}(t) = {phase}_avg + j·hilbert({phase}_avg)')
+    dot.edge(f'C{phase}', f'D{phase}')
+
+    dot.node(f'E{phase}', f'Envelope calculation\n|z{phase}(t)| = sqrt(x² + hilbert(x)²)')
+    dot.edge(f'D{phase}', f'E{phase}')
+
+    dot.node(f'F{phase}', f'Instantaneous phase\n→ phase_{phase}(t) = angle(z{phase}(t))')
+    dot.edge(f'E{phase}', f'F{phase}')
+
+    dot.node(f'G{phase}', f'Instantaneous frequency\n→ freq_{phase}(t) = d(phase)/dt / 2π')
+    dot.edge(f'F{phase}', f'G{phase}')
+
+    dot.node(f'H{phase}', f'STD of frequency\n→ std(freq_{phase})')
+    dot.edge(f'G{phase}', f'H{phase}')
+
+    dot.node(f'I{phase}', f'Health check Phase {phase}\n→ std(freq_{phase}) < threshold?')
+    dot.edge(f'H{phase}', f'I{phase}')
+
+# Global decision point
+dot.node('J1', 'Are all phases OK?\nstd(freq_A/B/C) < threshold')
+for phase in ['A', 'B', 'C']:
+    dot.edge(f'I{phase}', 'J1')
+
+# Yes / No branches
+dot.node('J2', 'All phases OK\n→ Global Health: OK')
+dot.edge('J1', 'J2', label='Yes')
+
+dot.node('J3', 'At least one phase NOT OK\n→ Global Health: NOT OK')
+dot.edge('J1', 'J3', label='No')
+
+# Continue on the "Yes" branch
+dot.node('K1', 'Create results DataFrame\n→ health_df')
+dot.edge('J2', 'K1')
+
+dot.node('L1', 'Generate charts\n→ Envelope + Frequency')
+dot.edge('K1', 'L1')
+
+dot.node('M1', 'Insert images in Excel\n→ insert_image()')
+dot.edge('L1', 'M1')
+
+dot.node('N1', 'Save Excel file\n→ to_excel()')
+dot.edge('M1', 'N1')
+
+dot.node('O1', 'Aggregate all results\n→ Global Results')
+dot.edge('N1', 'O1')
+
+dot.node('Z1', 'End')
+dot.edge('O1', 'Z1')
+
+# Render the diagram
+dot.render('hilbert_flowchart_updated_en', format='png', view=True)
