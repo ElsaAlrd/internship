@@ -1,0 +1,52 @@
+import os, datetime, pandas as pd, matplotlib.pyplot as plt
+from io import BytesIO
+
+log_file = "last_run_mtbe.log"
+
+def should_run():
+    if not os.path.exists(log_file): return True
+    with open(log_file, "r") as f:
+        last = datetime.datetime.strptime(f.read(), "%Y-%m-%d")
+    return (datetime.datetime.today() - last).days >= 10
+
+def update_log():
+    with open(log_file, "w") as f:
+        f.write(datetime.datetime.today().strftime("%Y-%m-%d"))
+
+if should_run():
+    print(" Lancement de l’analyse MTBE...")
+
+    fft = pd.read_excel("MTBE_Motors_with_fft_health_results.xlsx", sheet_name="Global results")
+    hilbert = pd.read_excel("MTBE_Motors_with_health_results.xlsx", sheet_name=" Global results")
+    fft["Motor"] = fft["Motor"].fillna(method="ffill")
+    hilbert["Motor"] = hilbert["Motor"].fillna(method="ffill")
+
+    fft_A = fft[fft["Phase"] == "A"][["Motor", "Mean FFT Magnitude"]].rename(columns={"Mean FFT Magnitude": "FFT_Mag"})
+    hilbert_A = hilbert[hilbert["Phase"] == "A"][["Motor", "Standard deviation frequency"]].rename(columns={"Standard deviation frequency": "Hilbert_STD"})
+
+    df = pd.merge(fft_A, hilbert_A, on="Motor")
+    df["FFT_Mag_Norm"] = (df["FFT_Mag"] - df["FFT_Mag"].min()) / (df["FFT_Mag"].max() - df["FFT_Mag"].min())
+    df["Hilbert_STD_Norm"] = (df["Hilbert_STD"] - df["Hilbert_STD"].min()) / (df["Hilbert_STD"].max() - df["Hilbert_STD"].min())
+    df["Health Score"] = 1 - (0.5 * df["FFT_Mag_Norm"] + 0.5 * df["Hilbert_STD_Norm"])
+    df["État moteur"] = df["Health Score"].apply(lambda s: "Bon" if s > 0.7 else "Moyen" if s > 0.4 else "Critique")
+
+    plt.figure(figsize=(12, 6))
+    plt.bar(df["Motor"], df["Health Score"], color=df["État moteur"].map({"Bon": "green", "Moyen": "orange", "Critique": "red"}))
+    plt.axhline(0.7, color="gray", linestyle="--")
+    plt.axhline(0.4, color="gray", linestyle="--")
+    plt.xticks(rotation=90)
+    plt.title("Niveau de vie des moteurs - MTBE")
+    plt.tight_layout()
+    img = BytesIO()
+    plt.savefig(img, format='png')
+    plt.close()
+
+    with pd.ExcelWriter("MTBE_Motor_Health_Report.xlsx", engine="xlsxwriter") as writer:
+        df.to_excel(writer, sheet_name="Résumé santé", index=False)
+        ws = writer.book.add_worksheet("Graphique")
+        ws.insert_image("B2", "graph.png", {"image_data": img})
+
+    update_log()
+    print(" Rapport généré : MTBE_Motor_Health_Report.xlsx")
+else:
+    print(" Moins de 10 jours écoulés. MTBE non relancé.")
