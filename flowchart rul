@@ -1,0 +1,52 @@
+import graphviz
+
+# Create the flowchart
+dot = graphviz.Digraph(comment='PPTSB Motor Health Analysis Script - English')
+
+# Main steps
+dot.node('A0', 'Start')
+
+dot.node('A1', 'Check log file\n(last_run_pptsb.log)')
+dot.edge('A0', 'A1')
+
+dot.node('A2', 'Has 10 days passed?')
+dot.edge('A1', 'A2')
+
+dot.node('A3', 'Stop script\nAnalysis not executed')
+dot.edge('A2', 'A3', label='No')
+
+dot.node('B1', 'Load Excel files\n(FFT and Hilbert)')
+dot.edge('A2', 'B1', label='Yes')
+
+dot.node('B2', 'Fill missing values\n"Moteur" using ffill')
+dot.edge('B1', 'B2')
+
+dot.node('B3', 'Filter Phase A\nExtract FFT_Mag and Hilbert_STD')
+dot.edge('B2', 'B3')
+
+dot.node('B4', 'Merge both datasets\non "Motor"')
+dot.edge('B3', 'B4')
+
+dot.node('B5', 'Normalize indicators\n(Min-Max Scaling)')
+dot.edge('B4', 'B5')
+
+dot.node('B6', 'Compute Health Score\n1 - 0.5*(FFT + Hilbert)')
+dot.edge('B5', 'B6')
+
+dot.node('B7', 'Classify motors\nGood / Medium / Critical')
+dot.edge('B6', 'B7')
+
+dot.node('C1', 'Generate chart\n(colored bars + thresholds)')
+dot.edge('B7', 'C1')
+
+dot.node('C2', 'Export to Excel\nSummary + Chart')
+dot.edge('C1', 'C2')
+
+dot.node('C3', 'Update log file\n(with today\'s date)')
+dot.edge('C2', 'C3')
+
+dot.node('Z1', 'End of process')
+dot.edge('C3', 'Z1')
+
+# Render the diagram
+dot.render('pptsb_script_flowchart_en', format='png', view=True)
