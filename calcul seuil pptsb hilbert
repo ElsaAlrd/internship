@@ -1,0 +1,65 @@
+import pandas as pd
+import numpy as np
+from scipy.signal import hilbert
+
+def hilbert_frequency(signal):
+    analytic = hilbert(signal)
+    phase = np.unwrap(np.angle(analytic))
+    freq = np.gradient(phase) / (2 * np.pi)
+    return freq
+
+def compute_empirical_threshold_pptsb(file_path, output_filename):
+    try:
+        xls = pd.ExcelFile(file_path)
+    except Exception as e:
+        print(f"Erreur lors de la lecture du fichier Excel : {e}")
+        return
+
+    motor_names = xls.sheet_names
+    results = []
+
+    for motor in motor_names:
+        try:
+            df = pd.read_excel(file_path, sheet_name=motor)
+
+            for phase in ['A', 'B', 'C']:
+                col_max = f'{phase}(A) Max'
+                col_min = f'{phase}(A) Min'
+                
+                if col_max in df.columns and col_min in df.columns:
+                    signal = (df[col_max] + df[col_min]) / 2
+                    freq = hilbert_frequency(signal)
+                    std = np.std(freq)
+
+                    results.append({
+                        'Motor': motor,
+                        'Phase': phase,
+                        'STD_Frequency': std
+                    })
+
+        except Exception as e:
+            print(f"Erreur pour le moteur {motor} : {e}")
+            continue
+
+    result_df = pd.DataFrame(results)
+
+    if not result_df.empty:
+        mean_std = result_df['STD_Frequency'].mean()
+        std_std = result_df['STD_Frequency'].std()
+        threshold = mean_std + 2 * std_std
+
+        print(f"\nFichier : {file_path.split('/')[-1]}")
+        print(f"Moyenne des écarts-types : {mean_std:.6f}")
+        print(f"Écart-type des écarts-types : {std_std:.6f}")
+        print(f"Seuil empirique proposé : {threshold:.6f}")
+
+        result_df.to_excel(output_filename, index=False)
+        print(f"Résultats enregistrés dans : {output_filename}")
+    else:
+        print("Aucune donnée valide trouvée.")
+
+# Traitement du fichier PPTSB uniquement
+file_pptsb = "1. PPTSB Motors List and Data.xlsx"
+output_file = "Results_PPTSB.xlsx"
+
+compute_empirical_threshold_pptsb(file_pptsb, output_file)
